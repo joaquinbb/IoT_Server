@@ -1,0 +1,57 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+	
+	<meta http-equiv="Content-Type" content="text/html; charset=utf8">
+	<title>{% block title %}{% endblock %}</title>
+	<style type="text/css">
+  		@import "/static/css/style.css";
+  		@import "/static/css/style_ddm.css";
+  		@import "/static/css/jquery.calendar.css";
+	</style>
+	<script src="/static/js/jquery-1.11.3.min.js"></script>
+    	<script type="text/javascript" src="http://cdn.socket.io/socket.io-1.4.5.js"></script>
+	<script type='text/javascript' src='/static/js/jquery.calendar.js'></script>
+	<script type='text/javascript' src='/static/js/jquery.multi-ddm.js'></script>
+	{#
+	<script type='text/javascript'>
+		function ejecuta(link1) {
+			location.href=link1;
+            	}
+	</script>
+	#}
+	{% block external %}{% endblock %}
+	{# block external nos permite poner otras llamadas a javascript desde view.py #}
+</head>
+
+<body class = "chimobackground1">
+	<div id="hora"> {{fecha}}</div>
+	<div id="nav">
+		<a href="/salir">Logout</a>|
+		<a href="/login">Menu</a>
+	</div>
+<h1>
+<div id="header">  
+{% block head %}{% endblock %}
+</div>
+</h1>
+<div class = "chimobackground1">
+{% block content %}{% endblock %}
+{% block content2 %}{% endblock %}
+</div>
+
+</body>
+</html>
+<!-- comentario
+<link rel="shortcut icon" href="http://berentec.ddns.net:10824/favicon.ico" />
+http://code.jquery.com/jquery-1.12.3.min.js" integrity="sha256-aaODHAgvwQW1bFOGXMeX+pC4PZIPsvn2h1sArYOhgXQ=" crossorigin="anonymous" 
+<img id="imgbase1" src="/media/photos/book_template.jpg" border=1>
+  cada vez que haya una columna de tipo date debemos llamar a la siguiente funcion para que aparezca la opcion de elegir fecha
+  <script>
+  $(document).ready(function(){
+    $('#example').calendar();
+  });
+  </script> 
+  
+-->

@@ -1,0 +1,105 @@
+
+{% extends "base_office.html" %}
+{% block external %}
+<script type="text/javascript">
+   		$(document).ready(function() {
+       		var url = "http://" + document.domain + ":" + location.port;
+       		var socket = io.connect(url+"/serveriot");
+			socket.on('connect', function() {
+				socket.emit('msgcon', {data: 'Estoy Conectado!'});
+				});
+			$('#app-form').submit(function() {
+				socket.emit('msgcli', {data: $("#modulos").val()+"&"+$("#funciones").val()+"&"+$("#campo1").val()+"&"+$("#campo2").val()+"&"+$("#colores").val()});
+				$('#campo1').val('');
+				$('#campo2').val('');
+				return false;	
+				});
+			socket.on('msgserv', function(msg) {
+				$("#12").prepend(msg.data+'\n');
+				});
+			socket.on('eventserv', function(msg) {
+				$("#13").prepend(msg.data+'\n');
+				});
+			});
+
+</script>
+{% endblock %}
+{% block title %}ServerIoT Application{% endblock %}
+{% block head %}ServerIoT Application{% endblock %}
+{% block content %}
+	<form action="#" id="app-form" enctype="multipart/form-data">
+	<table id="chimofont3">
+		<tr>
+			<td>
+				<label for="330021">Connected Modules  :</label>
+			</td>
+			<td>	<select class="chimofont5" name="Modulos" id="modulos">
+					{% for opcion in modulos.opciones %}
+						<option>{{ opcion.valor}}</option>
+					{% endfor %}
+				</select>
+			</td>
+			<td >
+				<label for="C1">Field 1 :</label><input class="chimofont4" type="text" name= "Campo1" id="campo1" value="" size=20 />
+			</td>
+		</tr>
+		<tr>
+			<td>
+				<label for="111">Module Functions  :</label>
+			</td >
+			<td >
+				<select class="chimofont5" name="Funciones" id="funciones">
+					{% for opcion in funciones.opciones %}
+						<option>{{ opcion.valor}}</option>
+					{% endfor %}
+				</select>
+			</td>
+			<td>
+				<label for="C2">Field 2 :</label><input class="chimofont4" type="text" name= "Campo2" id="campo2"  value="" size=20/>
+			</td>
+		</tr>	
+		<tr>
+			<td >
+				<label for="121">Modules Answers  :</label>
+			</td >
+			<td >
+				<textarea class="chimofont5" name="Contestacion" id="12" rows="10" cols="70">  </textarea>
+			</td>
+			<td>
+				<label for="C3">Colour:</label>
+				<select class="chimofont5" name="Colores" id="colores">
+					<option>255,0,0</option>
+					<option>0,255,0</option>
+					<option>0,0,255</option>
+				</select>
+			</td>
+		</tr>
+		<tr>
+			<td>
+				<label for="131">Events from Modules  :</label>
+			</td >
+			<td >
+				<textarea class="chimofont5" name="Eventos" id="13" rows="10" cols="70">  </textarea>
+			</td>
+		</tr>
+	</table>
+	<div id="margen">
+		<br>
+		<table>
+		<tr>
+		<td><input class="chimofont4" type="submit" name= "Boton_Enviar" value="Send" /></td>
+		</tr>
+		</table>
+	</div>
+	</form>
+	{#
+	{% if pone_imagen > 0 %}
+		<div id='adorno1' style='position:absolute;z-index:1;visibility:visible; left:1000px;top:450px;width:300px;height:300px;'>
+		<img src="{{imagen1}}" alt='' border = '1'  width='300' height='300'></img></div>
+	{% endif %}
+	#}
+	{%- if errors %}
+            <p>Revise los datos introducidos : {{info_error}}  </p>
+      {% endif %}
+{% endblock %}
+

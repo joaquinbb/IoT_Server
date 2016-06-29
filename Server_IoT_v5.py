@@ -80,6 +80,8 @@ import multiprocessing
 import queue
 import Myconfig
 import IoTFunc16
+import logging
+from socketIO_client import SocketIO, LoggingNamespace, BaseNamespace
 
 global f1, timer1, threads, DicSentSql
 global NumMenGen,  Mibloqueo, Permiso_Envio
@@ -94,6 +96,8 @@ ANDROID = 501
 TABLET=502
 PCWINDOWS=513
 PCLINUX=512
+PCDUINO=510
+RASPBERRY=511
 IPHONE=505
 LOOPBACK=50
 MENSAJE_ERROR = 23
@@ -105,6 +109,7 @@ QUIERES_ALGO = 21
 ESTAS_VIVO = 22
 EN_ESPERA = 24
 REPETITIVO = 25
+EVENTO_MODULO = 26
 SEP1 = '|'
 SEP2 = '#'
 SALIR=20
@@ -164,12 +169,14 @@ def ConstruyeMensaje(tipomens, valoresd, origen = '0', destino = '1', separador 
       #el primer campo debe ser 0 si viene del servidor, que siempre se interpretará, o desde un origen que el modulo acepte que tenga permiso.
 
 
-
-def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicClientes, ThreadAct, connbd, DicFunciones):
+#cuando el tipo de mensaje sea EVENTO, la dirección debe ser 0, el propio servidor.
+#dicho mensaje se enviará a la cola_eventos, de forma que se reenviara mediante socket.io a todas la paginas html conectadas!!!
+def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicClientes, ThreadAct, connbd, DicFunciones, logger, cola_eventos):
       global NumMenGen, Mibloqueo, Permiso_Envio, DicSentSql
       tab1 = MyFunc16.DicciDatos_My(connbd.get("bd"), connbd.get("usuario"), connbd.get("password"))  #necesitamos conexión con la BD en cada Thread
       upd1 = DicSentSql.get("upd1")
       upd2 = DicSentSql.get("upd2")
+      #MiTipo = DicClientes.get(MiThread).get("tipo")
       #usaremos las tablas : funcion, dispositivo, funcplaca, sensoractu, grupos y tiposa
       MiDireccion = address[0] 
       if tab1.conn==None:
@@ -192,18 +199,21 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
       data=None
       MiTipo = DicClientes.get(numthread).get("tipo") # no lo sabemos ahora, debe ser lo primero que debe decirnos.
       while 1:	
-            if (time.time() - HoraConexion) > Timeout1:
+            if (time.time() - HoraConexion) > Timeout1 and MiTipo != PCLINUX:
                   break
-            if (time.time() - HoraConEsp) > TimeOutEsp :
+            if (time.time() - HoraConEsp) > TimeOutEsp and MiTipo != PCLINUX:
                   HoraConEsp = time.time() #cada TimeOutEsp enviamos un mensaje para saber si el modulo esta vivo
                   Mens1="%c%c%d%c%d%c%c" % ('0', SEP1, MiThread, SEP1, ESTAS_VIVO, SEP1, ASCII_EOT)
                   DicClientes.get(MiThread).pop("mensaje")
                   DicClientes.get(MiThread).setdefault("mensaje", ESTAS_VIVO)	
                   #print ("Se manda el mensaje de Esta Vivo : ", MiThread)
                   MiCola.put(Mens1)
-            if (time.time() - HoraConEsp) > TimeOutEsp/2:
+            if (time.time() - HoraConEsp) > TimeOutEsp/2 and MiTipo != PCLINUX:
                   if  (DicClientes.get(MiThread).get("mensaje") == ESTAS_VIVO):
-                        print ("No devuelve el Mensaje de Esta Vivo :", MiThread) 
+                        cola_logop.put("No devuelve el Mensaje de Esta Vivo : {}".format(MiThread)) 
+                        msg1="No devuelve el Mensaje de Esta Vivo : {}".format(MiThread)
+                        logger.info(msg1)
+                        #print (msg1)
                         break 
             if MiCola.qsize() > 0 and Permiso_Envio == 1: #si hay algo en la cola es un mensaje para enviar
                   data = MiCola.get()#bytes.decode(MiCola.get())
@@ -215,14 +225,16 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
                   except socket.timeout:
                         continue
                   except:
-                        print ("data:", data, "ERROR thread : ", MiThread, " Hora : ", ahora())
+                        msg1="data:{} ERROR thread : {} Hora : {}".format(data, MiThread, ahora())
+                        logger.info(msg1)
                         ErrorModuloCaido = 1
                         break
             if data != '' and data != None: #si el cliente no envia nada en 1 minuto, se desconecta	
                   nc, mensaje = extrae2(data)
-                  if nc < 2:
-                        MiEnvio="Mensaje  No Valido|ERROR"
-                        print (MiEnvio+" "+data)
+                  if nc < 2 or mensaje[0] == 'None':
+                        MiEnvio="Mensaje  No Valido|ERROR  : {}".format(data) 
+                        logger.info(MiEnvio)
+                        #print (MiEnvio)
                         connection.send(str.encode("%s|%c" %(MiEnvio, ASCII_EOT)))	
                         #break
                   elif NumMensaje == 0: #debemos saber que tipo de cliente es 
@@ -246,12 +258,14 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
                                     MiEnvio="|%d|OK|%c" % (MiThread, ASCII_EOT)
                               else:
                                     MiEnvio="%d|OK|%c" % (MiThread, ASCII_EOT)
-                              print(MiEnvio+" "+mensaje[1]+ " " + mensaje[0])
+                              MiEnvio ="{} {}  {}".format(MiEnvio, mensaje[1], mensaje[0])
+                              #print(MiEnvio)
+                              logger.info(MiEnvio)
                               cola_logop.put(MiEnvio);
                               connection.send(str.encode(MiEnvio))
                         else:
                               MiEnvio="Codigo No Valido|ERROR"
-                              print (MiEnvio)
+                              #print (MiEnvio)
                               connection.send(str.encode("%s|%c" %(MiEnvio, ASCII_EOT)))
                               break
                   elif NumMensaje == 1: 
@@ -263,7 +277,8 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
                         if digest_calculado != mensaje[0]:
                               MiEnvio="Numero de Serie No Valido|ERROR"
                               MiEnv2=MiEnvio+" NumRandom:"+num_random+" Digest:"+mensaje[0]+" Calculado:"+digest_calculado
-                              print (MiEnv2)
+                              #print (MiEnv2)
+                              logger.info(MiEnv2)
                               cola_logop.put(MiEnv2);
                               connection.send(str.encode("%s|%c" %(MiEnvio, ASCII_EOT)))
                               break		
@@ -271,17 +286,10 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
                               MiEnvio="OK|OK|%c" % (ASCII_EOT)	
                               NumMensaje+=1
                               Timeout1 = int(res1.get("timeout")) #cada dispositivo puede tener un timeout diferente
-                              print ("Conectado!!! , Thread : ", MiThread,  " Num. Serie : ", DicClientes.get(MiThread).get("numserie"), "N.Random : ", num_random, " TimeOut: ",Timeout1)					
-                              cola_logop.put("Conectado!!! , Thread : "+ str(MiThread) +  " IP:" + DicClientes.get(MiThread).get("dirip") + " TimeOut: "+str(Timeout1) + " Random Number :"+str(num_random));
-                              """
-                              #antes de actualizar la BD con el thread, miramos si este dispositivo ya tenia un thread arrancado para mandarle un mensaje a su cola, para que termine
-                              nf4, res2 = MyFunc16.ResSel3(tab1, DicSentSql.get("sel9"), (DicClientes.get(MiThread).get("codigo"), DicClientes.get(MiThread).get("numserie")))
-                              if nf4>0: #
-                                    Thr1 = int(res2.get("thread"))
-                                    ColaDest = DicClientes.get(Thr1).get("cola")
-                                    ColaDest.put("%s|%c" % ("SALIR", ASCII_EOT))
-                                    cola_logop.put("Se envia Mensaje para terminar thread : %d" % (int(res2.get("thread"))))
-                              """
+                              MiEnvio1 = "Conectado!!! , Thread : {}  Num. Serie : {} N.Random : {}  TimeOut: {}".format(MiThread, DicClientes.get(MiThread).get("numserie"), num_random, Timeout1)
+                              #print (MiEnvio1)			
+                              logger.info(MiEnvio1)
+                              cola_logop.put(MiEnvio1)
                               #actualizamos la fila del dispositivo para asignar el thread 
                               MyFunc16.UpdateFilaBD(tab1, upd1, (MiThread, DicClientes.get(MiThread).get("dirip"), DicClientes.get(MiThread).get("codigo"), DicClientes.get(MiThread).get("tipo")))
                               connection.send(str.encode(MiEnvio))	
@@ -294,22 +302,20 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
                   else:
                         #analisis de mensaje, para ejecutarlo, guardarlo en la BD o reenviarlo a otra cola
                         if mensaje[0] == "SALIR":
-                              print ("Thread : ", MiThread, "Se cierra")
-                              if mensaje[1] == "SERVIDOR":
-                                    cola_signal.put("SALIR")
-                              try:
-                                    connection.send(str.encode("%s|%c" % ("SALIR", ASCII_EOT)))
-                              except:
-                                    cola_logop.put("Ya esta cerrado %d" % (MiThread))
+                              msg = "Recibido Mensaje de Salir, Thread : {}".format(MiThread)
+                              #print (msg)
+                              logger.info(msg)
+                              cola_logop.put(msg)
                               break
                         else:
+                              #logger.info(str(mensaje))
                               ParMens={}
                               ParMens.setdefault("origen", int(mensaje[0]))
                               ParMens.setdefault("destino", int(mensaje[1]))
                               ParMens.setdefault("funcion", int(mensaje[2]))
                               Mibloqueo.Coger() #bloquea hasta soltar cualquier otro thread
                               NumMenGen+=1	
-                              ret1 = AnalisisMensaje(DicClientes, MiThread, mensaje, ParMens, data, tab1, NumMenGen, DicFunciones)
+                              ret1 = AnalisisMensaje(DicClientes, MiThread, mensaje, ParMens, data, tab1, NumMenGen, DicFunciones, logger, cola_eventos)
                               Mibloqueo.Soltar()
                               HoraConexion=time.time()
                               NumMensaje+=1
@@ -319,9 +325,9 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
                                     connection.send(str.encode(ret1))
                                     cola_logop.put(ret1)
       #el cliente no se entera de que le voy a cerrar la conexion, y si se ha caido el ErrorModuloCaido=1
-      if MiTipo > MODULOESP and ErrorModuloCaido == 0:
-            mens1 = "0%c%d%c%d%c%s%c%c" % (SEP1, MiThread, SEP1, SALIR, SEP1, "Termina", SEP1, ASCII_EOT)
-            connection.send(str.encode(mens1))
+      #if MiTipo > MODULOESP and ErrorModuloCaido == 0:
+      #      mens1 = "0%c%d%c%d%c%s%c%c" % (SEP1, MiThread, SEP1, SALIR, SEP1, "Termina", SEP1, ASCII_EOT)
+      #      connection.send(str.encode(mens1))
       time.sleep(1)	
       connection.close()	
       #hay que actualizar la fila del dispositivo para desasignar el thread
@@ -331,21 +337,24 @@ def Conexion(cola_logop, connection, address, numthread, cola_emergencia, DicCli
       ThreadAct.pop(DicClientes.get(MiThread).get("thread"))
       DicClientes.pop(MiThread) #elimina la entrada del diccionario	
       termina1="Thread : %d Terminado %s" % (MiThread, ahora())
-      print (termina1)
+      logger.info(termina1)
+      #print (termina1)
       cola_logop.put(termina1)
       tab1.Salir()
 
-
-def AnalisisMensaje(DCliente, Thread, Mensaje, ParMens, data, tab1, nmens, DicFunciones):
+#en ParMens tenemos origen, destino y tipo de mensaje
+def AnalisisMensaje(DCliente, Thread, Mensaje, ParMens, data, tab1, nmens, DicFunciones, logger, cola_eventos):
       global Permiso_Envio, DicSentSql
+      #logger.info("Analisis Mensaje:"+str(Mensaje)+str(ParMens))
       if ParMens.get("destino") == 0:#DirServidor: #aqui vienen todas la funciones que se ejecutan en el propio servidor
             try:
-                  result = getattr(IoTFunc16, DicFunciones.get(ParMens.get("funcion")))(DCliente, Thread, Mensaje, tab1, nmens, DicSentSql)
+                  result = getattr(IoTFunc16, DicFunciones.get(ParMens.get("funcion")))(DCliente, Thread, Mensaje, tab1, nmens, DicSentSql, logger, cola_eventos)
                   #ejecuta la funcion que venga en el diccionario, llenado desde la base de datos
                   #lo que se cambia en los parametros mutables (DCliente) en la funcion, se queda cambiado cuando sale de la funcion
                   #print (DCliente.get(Thread).get("mensaje"))
                   return result
             except:
+                  logger.info("ERROR, Funcion No existe"+str(Mensaje)) 
                   return "ERROR, Funcion No existe%c%c" % (SEP1, ASCII_EOT)
       elif ParMens.get("destino") == Thread: #destino es igual a MiThread, luego es otro cliente que me quiere enviar un mensaje
             #print("Mensaje para mi Thread %d : %s" % (Thread, data))
@@ -379,6 +388,18 @@ def PonerHora(cola, origen, destino):
       cola.put(mens1)
       return 0
 
+#esperamos en una cola, mensajes de eventos como la pulsación de un switch, o cualquier evento de entrada de datos
+#se envia a berentecio, para que lo presente en las paginas html, que este conectadas en ese momento
+def MsgEventos(cola, cola_log, logger):
+      socketIO = SocketIO('localhost', 10824)#, Namespace)
+      sid=socketIO._engineIO_session[0]
+      logger.info("SID de la Conexion con Berentecio"+sid)
+      socketIO.emit('msgcon', {'data': 'Estoy Conectado ServerIoT!'}, path="/serveriot")
+      while 1: 
+            fila = cola.get() #estamos bloqueados esperando un evento
+            #mensaje = "Mensaje srviot! : {}-{}".format(i1, ChimoFunc16.timestamp(1))
+            socketIO.emit('srviot', {'data': fila}, path="/serveriot")
+            cola_log.put("Evento : "+fila)
 #para tener el log en la BD, es más lento, pero nos permite insertar en cualquier tabla de SQLIte o MySQL
 def InsertarLogop(cola, connbd, cola_signal):
       tab1 = MyFunc16.DicciDatos_My(connbd.get("bd"), connbd.get("usuario"), connbd.get("password"))
@@ -418,6 +439,10 @@ def Salir_Ordenado(cola_logop, bd1, threads):
 
 #Usamos el módulo Myconfig para centralizar la configuración de los programas, de forma que no haya que poner constantes en los programas
 #y solo tengamos que modificar en Myconfig para todos los programas
+logging.basicConfig(filename='/media/joaquin/Home2/Tmp/ServerIoT.log',
+                    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                    datefmt='%d-%m %H:%M', level=logging.DEBUG)	
+logger = logging.getLogger(__name__)
 misclv = Myconfig.claves()
 if os=='nt':
       connbd=misclv.user_w8()
@@ -444,9 +469,12 @@ for i1 in range(nf2):
 nf0, campos = extrae3(DicSentSql.get("sel10"), "select", "from", ",")
 nf2, res1 = MyFunc16.ResSel3(tab1, DicSentSql.get("sel10"), None, 1) 
 for i1 in range(nf2):
-      DicFunciones.setdefault(res1.get(str(i1)).get(campos[0]), res1.get(str(i1)).get(campos[1]))     #tenemos codigo y descripcion de la funcion 
+      #logger.info(str(res1.get(str(i1)).get(campos[0]))+res1.get(str(i1)).get(campos[1]))
+      DicFunciones.setdefault(res1.get(str(i1)).get(campos[0]), res1.get(str(i1)).get(campos[1]))     #tenemos codigo y funcion a ejecutar 
 cola_signal = queue.Queue(0) #cola de recepción de señales, por ejemplo para salir del Servidor, de forma ordenada.
+cola_eventos = queue.Queue(0)
 thread1=Thread(InsertarLogop, cola_logop, connbd, cola_signal)
+threadmsg = Thread(MsgEventos, cola_eventos, cola_logop, logger)
 threads={}
 i1=1
 NumMenGen=0
@@ -454,30 +482,40 @@ DirServidor = 0
 Mibloqueo=Semaforo()#thread.allocate_lock()
 IdentCliente={} #identificacion de cada cliente por su dirección IP y su Thread y su tipo (cliente python, telefono, modulo, ...)
 #thread2=Thread(HouseKeeper, tab1, cola_logop, cola_signal, IdentCliente)
-cola_logop.put("Init:Servidor_ESP8266, Sistema Operativo : "+ sys.platform+", Version de Python : "+sys.version)
-cola_logop.put("Dir. IP : "+socket.gethostbyname(socket.gethostname())+" Nombre : "+socket.gethostname())
+msg="Init:Servidor_ESP8266, Sistema Operativo : "+ sys.platform+", Version de Python : "+sys.version
+logger.info(msg)
+cola_logop.put(msg)
+msg="Dir. IP : "+socket.gethostbyname(socket.gethostname())+" Nombre : "+socket.gethostname()
+logger.info(msg)
+cola_logop.put(msg)
 AtiendeConn=0
 upd0 = DicSentSql.get("upd0")
 #upd0="update dispositivo set thread = 0"
 MyFunc16.UpdateFilaBD(tab1, upd0)
 tab1.Salir()
 while True:
-      print ("Esperando Conexion "+ahora())
-      cola_logop.put("Esperando Conexion "+timestamp(1))
+      msg="Esperando Conexion "+ahora()
+      logger.info(msg)
+      #print (msg)
+      cola_logop.put(msg)
       connection, address = sockobj.accept()   # esperamos bloqueados, hasta una nueva conexión
       if cola_signal.qsize() > 0: #si alguno de los threads, envia un comando, para salir del servidor, se llama a Salir_Ordenado()
             Salir_Ordenado(cola_logop, bd1, threads)
             break
-      print ('Servidor conectado por : ',address[0], "   ", ahora())
+      msg1='Servidor conectado por : {}   {}'.format(address[0], ahora())
+      logger.info(msg1)
+      #print (msg1)
       #arrancamos el thread de la conexión que acaba de conectarse, y en dicho thread, se hace la recepción de datos
       #tenemos identificado al thread con la dirección, si ya existiese por haberse conectado antes, se actualiza el numero de thread
       cola_cliente = IdentificaCliente(IdentCliente, address[0], i1)
       IdentCliente.get(i1).setdefault("cola", cola_cliente)
-      thread1=Thread(Conexion, cola_logop, connection, address,i1, cola_signal, IdentCliente, threads, connbd, DicFunciones)
+      IdentCliente.get(i1).setdefault("cola_eventos", cola_eventos)
+      thread1=Thread(Conexion, cola_logop, connection, address,i1, cola_signal, IdentCliente, threads, connbd, DicFunciones, logger, cola_eventos)
       thread1.name="Thread-"+str(i1) #le damos nombre al thread, para su identificación
       thread1.Nombre("Thread-"+str(i1))
       cola_logop.put('Servidor conectado por : '+address[0]+ " "+thread1.name)    # escribimos la información del cliente conectado
-      print (thread1.name)
+      logger.info(thread1.name)
+      #print (thread1.name)
       threads.setdefault(i1, thread1) #para tener controlados los nombre de todos los threads arrancados.
       i1+=1
 
